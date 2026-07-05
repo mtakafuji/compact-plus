@@ -1,0 +1,3 @@
+[scanner]
+# compact-plus has no bundled binaries or minified assets, so no scanner ignores
+# are needed. This file exists to keep configuration explicit for the CI job.
