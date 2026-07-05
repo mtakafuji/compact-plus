@@ -68,21 +68,22 @@ The OpenAI Responses API also has server-side context compaction through `contex
 
 ## 4. Compaction Capability Comparison
 
-| Capability | Claude Code (baseline) | Codex CLI (built-in) | Claude Code + compact-plus |
-|---|---|---|---|
-| Structured pre-compaction state file | None | None (the rollout file preserves the whole transcript but is not a structured state artifact) | 10-section state file written to disk |
-| Transcript backup safety net | None (transcript JSONL persists in place) | Full rollout file kept in `$CODEX_HOME/sessions` | Versioned backup copies under `~/.claude/backups/transcripts/` |
-| Automatic post-compaction recovery injection | None | Possible only via a user-authored SessionStart(source=compact) hook | Automatic through `UserPromptSubmit` |
-| Recall of skills invoked earlier | None | None | Restored from the `## Skills Invoked` section of the state file |
-| Correction for summary scope drift | None | None | Injects a factual note that memory / rule / skill mentions in the compacted summary are lossy and originals are authoritative |
-| User-side priority guidance | `/compact [instructions]` reaches hooks | Equivalent via `/compact` | Forwards Claude Code instructions to the state-generation LLM |
-| Threshold warn notification | Statusline percentage only | Requires custom implementation | Explicit warn marker plus a reminder hook |
-| Recitation of current focus (Active Plan / Current Phase / recent Session Decision) | None | None | Reminder hook injects a three-line state recitation as `additionalContext` |
-| Manual state save skill | None | None | Provides the `/compact-plus` skill |
-| Structured handoff prompt for the compaction LLM | Not published; treated as generic summarization | Ships a "CONTEXT CHECKPOINT COMPACTION" prompt that requires progress/decisions, context/constraints, remaining work, and critical data/references as sections | Leaves the compaction summary as-is; instead persists a 10-section state file outside the compacted context and injects it back on resume |
-| Replacing the compaction prompt itself | Not possible | Yes, via `compact_prompt` and `experimental_compact_prompt_file` | Out of scope by design (uses hook-side state capture instead) |
+Compared along user-facing outcomes ("can the session actually continue past compaction?"), not implementation mechanisms.
 
-Codex ships two distinct advantages here: it lets users replace the compaction prompt, and its default already applies structured handoff engineering. compact-plus does not enter the compaction prompt at all. Instead it places the handoff structure in an external state file that the recovery hook re-injects on the next user prompt. On the axis of "session continuity around compaction," this indirection lets Claude Code + compact-plus match or exceed the Codex baseline while staying inside Claude Code's documented extension surface.
+| Outcome | Claude Code (baseline) | Codex CLI (built-in) | Claude Code + compact-plus |
+|---|---|---|---|
+| Session goal survives compaction | △ (relies on unstructured summary; easy to dilute) | ○ (CONTEXT CHECKPOINT prompt requires progress and key decisions as sections) | ○ (externalized to `## Active Plan` and `## Current Phase`) |
+| Remaining work is handed off clearly | △ (same as above) | ○ (requires "remaining work (clear next steps)" as a section) | ○ (externalized to `## TaskList Summary` and `## Recovery Notes`) |
+| Important decisions are preserved | △ (same as above) | ○ (requires "key decisions made" as a section) | ○ (externalized to `## Session Decisions`) |
+| Skills invoked earlier can be recovered | × | × | ○ (recovered from `## Skills Invoked`) |
+| Scope drift in the summary's memory / rule mentions is corrected | × | × | ○ (recovery hook injects an "originals are authoritative" factual note) |
+| User can name priorities in natural language before compaction | △ (`/compact <text>` reaches hooks; the built-in effect on the summary is undocumented) | ○ (custom instruction equivalent) | ○ (Claude Code instructions are forwarded to the state-generation LLM) |
+| The original transcript is preserved | ○ (transcript JSONL persists in place) | ○ (rollout file preserves the whole transcript) | ○ (plus versioned backup copies under `~/.claude/backups/transcripts/`) |
+| Agent and user are warned before context runs out | △ (statusline percentage only) | × (requires custom implementation) | ○ (warn marker + reminder hook: notification and a three-line recitation) |
+| A manual, structured recovery-note path is available | × | × | ○ (the `/compact-plus` skill) |
+| User can replace the compaction prompt itself | × | ○ (`compact_prompt` and `experimental_compact_prompt_file`) | Out of scope by design (does not touch the compaction prompt) |
+
+Codex is clearly ahead of the baseline because it ships handoff-oriented compaction as a default. compact-plus does not touch the compaction prompt at all. It uses Claude Code's documented extension surface (hooks) to place a structured state outside the compaction and re-inject it afterwards. This indirection lets Claude Code + compact-plus reach the Codex baseline for session continuity while also adding capabilities Codex does not have out of the box: skill recovery, scope-drift correction, and threshold warning.
 
 ## 5. Runtime Flow
 

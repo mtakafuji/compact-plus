@@ -68,21 +68,22 @@ OpenAI Responses API にも `context_management` と `/responses/compact` endpoi
 
 ## 4. compact 能力比較
 
-| 能力 | Claude Code (baseline) | Codex CLI (built-in) | Claude Code + compact-plus |
-|---|---|---|---|
-| 圧縮前の構造化 state file | なし | なし (rollout file は transcript 全保持だが構造化された state artifact ではない) | 10 見出し state file を外部保存 |
-| Transcript backup safety net | なし (transcript JSONL 実体は残る) | rollout file が全履歴保持 (`$CODEX_HOME/sessions`) | `~/.claude/backups/transcripts/` に世代管理 backup |
-| 圧縮後の recovery 自動注入 | なし | 自作の SessionStart(source=compact) hook で可能 | `UserPromptSubmit` で自動注入 |
-| 呼び出し済み skill の復元 | なし | なし | state file の `## Skills Invoked` から復元 |
-| 圧縮 summary の scope drift 補正 | なし | なし | 「memory / rule / skill 言及は要約であり原文が authoritative」の factual note を注入 |
-| user 側の priority guidance | `/compact [instructions]` を hook が受け取れる | `/compact` に相当 | Claude Code の instruction を state 生成 LLM に転送 |
-| 閾値到達 warn 通知 | statusline に % 表示のみ | 独自実装が必要 | warn marker + reminder hook で明示的に通知 |
-| 直近状態の recitation (Active Plan / Current Phase / 直近 Session Decision) | なし | なし | reminder hook が state 3 行を `additionalContext` 注入 |
-| 手動 state 保存 skill | なし | なし | `/compact-plus` skill を提供 |
-| 圧縮 LLM への handoff 構造化指示 | 公式には非公開、汎用 summarization 扱い | "CONTEXT CHECKPOINT COMPACTION" prompt を built-in で搭載、進捗/意思決定・context/制約・残作業・重要データ の 4 セクションを要求 | 圧縮 summary 自体は Claude Code に任せ、代わりに 10 見出し state file を圧縮対象の外に永続化し、圧縮後 hook で復元する |
-| Compaction prompt 自体の差替 | 不可 | `compact_prompt` / `experimental_compact_prompt_file` で可 | 対象外 (compaction prompt ではなく hook 経路で state 保存する設計) |
+「圧縮を挟んでもセッションを続けられるか」という user 効能の軸で 3 者を比較する (実装手段ではなく効能を行に取っている)。
 
-Codex は 2 つの独自優位を持つ: user が compaction prompt を差し替えられる点と、default 自体が handoff 構造を持つ点。compact-plus は compaction prompt には一切手を入れず、代わりに handoff 構造を圧縮の外に置いた state file に持たせ、圧縮後の user prompt で復元させる。この間接化により Claude Code の公式拡張 surface に留まりながら Codex baseline に匹敵ないし超えるセッション継続を実現している。
+| 効能 | Claude Code (baseline) | Codex CLI (built-in) | Claude Code + compact-plus |
+|---|---|---|---|
+| 圧縮後もセッション目的 (goal) が保存される | △ (非構造化 summary 依存で薄まりやすい) | ○ (CONTEXT CHECKPOINT prompt が「進捗 / 意思決定」を必須セクション化) | ○ (`## Active Plan` / `## Current Phase` に外部化) |
+| 圧縮後に残作業が明確に引き継がれる | △ (同上) | ○ (「remaining work (clear next steps)」を必須セクション化) | ○ (`## TaskList Summary` / `## Recovery Notes` に外部化) |
+| 圧縮後に重要な意思決定が保存される | △ (同上) | ○ (「key decisions made」を必須セクション化) | ○ (`## Session Decisions` として独立見出しに外部化) |
+| 圧縮後に呼び出し済み skill を復元できる | × | × | ○ (`## Skills Invoked` から復元) |
+| 圧縮 summary の memory / rule 言及による scope drift を補正できる | × | × | ○ (recovery hook が「原文優先」factual note を注入) |
+| ユーザーが自然文で「これは残せ」と priority 指示できる | △ (`/compact <text>` は hook まで届くが built-in の summary への反映は未文書化) | ○ (custom instruction 相当) | ○ (Claude Code の instruction を state 生成 LLM に転送) |
+| 圧縮しても transcript 実体が保持される | ○ (transcript JSONL) | ○ (rollout file 全保持) | ○ (加えて `~/.claude/backups/transcripts/` に versioned backup) |
+| コンテキスト限界の手前で agent / user に気づかせる | △ (statusline % 表示のみ) | × (独自実装が必要) | ○ (warn marker + reminder hook で notification + 3 行 recitation) |
+| 復旧メモを agent 自身が構造化して書ける手動経路がある | × | × | ○ (`/compact-plus` skill) |
+| 圧縮 summary の作られ方をユーザーが差替えできる | × | ○ (`compact_prompt` / `experimental_compact_prompt_file`) | 対象外 (compaction prompt には手を入れない設計) |
+
+Codex は built-in の圧縮 prompt が handoff 指向で、baseline より大きく先行する。compact-plus は compaction prompt には一切手を入れず、Claude Code の公式拡張点である hook を使って構造化 state を圧縮の外に置き、後段の recovery で戻すという間接化を選ぶ。この設計により、Claude Code + compact-plus は Codex baseline のセッション継続効能を Claude Code 上で再現しつつ、Codex にない Skills 復元 / scope drift 補正 / warn 通知を上乗せする。
 
 ## 5. Runtime flow
 
