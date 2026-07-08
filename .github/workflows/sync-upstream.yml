@@ -1,11 +1,12 @@
 name: Sync upstream
 
 # upstream (u-ichi/compact-plus) の更新を定期的に取り込む。
-# GITHUB_TOKEN には workflows 権限がなく、upstream 側の
-# .github/workflows/* 変更を git push で取り込めないため、
-# サーバーサイドでマージされる fork sync API (merge-upstream) を使う。
-# API が失敗した場合（コンフリクト等）は push 不要の
-# クロスリポジトリ PR (u-ichi:main -> main) を作成する。
+# サーバーサイドでマージされる fork sync API (merge-upstream) を使い、
+# 失敗した場合（コンフリクト、または GITHUB_TOKEN に workflows 権限が
+# なく upstream の .github/workflows/* 変更を取り込めない場合）は
+# push 不要のクロスリポジトリ PR (u-ichi:main -> main) を作成する。
+# リポジトリシークレット SYNC_TOKEN（contents+workflows write の
+# fine-grained PAT）を登録すると、workflows 変更込みで完全自動になる。
 
 on:
   schedule:
@@ -26,7 +27,7 @@ jobs:
       - name: upstream をマージ（fork sync API）
         id: merge
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
         run: |
           if resp=$(gh api -X POST "repos/${{ github.repository }}/merge-upstream" -f branch=main 2>&1); then
             echo "$resp"
@@ -47,5 +48,6 @@ jobs:
               -f title="chore: sync with upstream（手動マージが必要）" \
               -f head="u-ichi:main" \
               -f base="main" \
-              -f body="upstream (u-ichi/compact-plus) の自動取り込み (merge-upstream API) が失敗しました。コンフリクト解消のうえ、この PR をマージしてください。"
+              -F maintainer_can_modify=false \
+              -f body="upstream (u-ichi/compact-plus) の自動取り込み (merge-upstream API) が失敗しました。ワークフローファイルの変更またはコンフリクトが原因です。内容を確認のうえ、この PR をマージしてください。"
           fi
