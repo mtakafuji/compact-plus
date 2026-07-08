@@ -1,8 +1,11 @@
 name: Sync upstream
 
 # upstream (u-ichi/compact-plus) の更新を定期的に取り込む。
-# フォーク側の独自変更はこのワークフローのみなので、通常はマージして
-# そのまま push し、コンフリクト時のみ解消用 PR を作成する。
+# GITHUB_TOKEN には workflows 権限がなく、upstream 側の
+# .github/workflows/* 変更を git push で取り込めないため、
+# サーバーサイドでマージされる fork sync API (merge-upstream) を使う。
+# API が失敗した場合（コンフリクト等）は push 不要の
+# クロスリポジトリ PR (u-ichi:main -> main) を作成する。
 
 on:
   schedule:
@@ -20,45 +23,29 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Git ユーザー設定
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: upstream を取得
-        id: fetch
-        run: |
-          git remote add upstream https://github.com/u-ichi/compact-plus.git
-          git fetch upstream main
-          echo "behind=$(git rev-list --count HEAD..upstream/main)" >> "$GITHUB_OUTPUT"
-
-      - name: upstream をマージして push
+      - name: upstream をマージ（fork sync API）
         id: merge
-        if: steps.fetch.outputs.behind != '0'
-        run: |
-          if git merge --no-edit upstream/main; then
-            git push origin main
-            echo "conflict=false" >> "$GITHUB_OUTPUT"
-          else
-            git merge --abort
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: コンフリクト時は解消用 PR を作成
-        if: steps.merge.outputs.conflict == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git checkout -B sync/upstream upstream/main
-          git push -f origin sync/upstream
-          if [ -z "$(gh pr list --head sync/upstream --state open --json number --jq '.[].number')" ]; then
-            gh pr create --base main --head sync/upstream \
-              --title "chore: sync with upstream（コンフリクト解消が必要）" \
-              --body "upstream (u-ichi/compact-plus) の自動マージでコンフリクトが発生しました。手元で解消して main に取り込んでください。"
+          if resp=$(gh api -X POST "repos/${{ github.repository }}/merge-upstream" -f branch=main 2>&1); then
+            echo "$resp"
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$resp"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 失敗時は解消用 PR を作成
+        if: steps.merge.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open=$(gh api "repos/${{ github.repository }}/pulls?head=u-ichi:main&state=open" --jq length)
+          if [ "$open" = "0" ]; then
+            gh api -X POST "repos/${{ github.repository }}/pulls" \
+              -f title="chore: sync with upstream（手動マージが必要）" \
+              -f head="u-ichi:main" \
+              -f base="main" \
+              -f body="upstream (u-ichi/compact-plus) の自動取り込み (merge-upstream API) が失敗しました。コンフリクト解消のうえ、この PR をマージしてください。"
           fi
