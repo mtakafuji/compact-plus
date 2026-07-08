@@ -16,7 +16,7 @@ MARKER_DIR="${TMPDIR:-/tmp}/claude-compacted" # lint:allow-os-tmp
 mkdir -p "$MARKER_DIR" 2>/dev/null || true
 printf '%s\n' "$(date +%s)" > "$MARKER_DIR/$SESSION_ID" 2>/dev/null || true
 
-# Reset the 80% warning cooldown after compact runs.
+# Reset the compact reminder cooldown after compact runs.
 WARN_DIR="${TMPDIR:-/tmp}/claude-compact-warned" # lint:allow-os-tmp
 rm -f "$WARN_DIR/$SESSION_ID" 2>/dev/null || true
 
