@@ -55,6 +55,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart-export-session-id.sh\"",
+            "timeout": 3000
+          }
+        ]
+      }
     ]
   }
 }

@@ -22,13 +22,14 @@ Claude Code context compaction.
 
 ## External Dependencies
 
-- Session id detection uses `~/.claude/scripts/get-session-id.sh`. Keep this reference for Codex compatibility.
+- Session id detection uses the bundled `scripts/get-session-id.sh` (invoked from the skill as `${CLAUDE_PLUGIN_ROOT}/scripts/get-session-id.sh`). It reads `$CLAUDE_CODE_SESSION_ID` (populated by the SessionStart hook `sessionstart-export-session-id.sh` via `$CLAUDE_ENV_FILE`) or `$CODEX_COMPANION_SESSION_ID` as a fallback. No external asset outside the plugin is required.
 - `skills/compact-plus/SKILL.md` is the Claude plugin skill entrypoint.
 - Hook scripts run through `hooks/hooks.json` as a Claude Code plugin.
 - Runtime tuning uses Claude Code `settings.json` `env` values. See `README.md` for the env var list and default behavior.
 
 ## Hook Scripts
 
+- `sessionstart-export-session-id.sh`: SessionStart hook that appends `export CLAUDE_CODE_SESSION_ID=<id>` to `$CLAUDE_ENV_FILE`, making the session id available to subsequent Bash tool calls and skill scripts inside the same session. Runs on every SessionStart matcher.
 - `precompact-transcript-backup.sh`: backs up the transcript to `~/.claude/backups/transcripts/` during PreCompact.
 - `precompact-state-summary.sh`: generates a state file during PreCompact using incremental transcript reads, semantic head/tail fallback, tool output squash, two-pass prompt metadata, custom `/compact` instructions, and Skills Invoked extraction.
 - `compaction-recovery.sh`: writes a recovery marker during PostCompact and clears the compact warning cooldown.

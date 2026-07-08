@@ -29,7 +29,7 @@ Before Claude Code `/compact`, save working state that is not reliably preserved
 ## Procedure
 
 1. Get the session id.
-   - Run `~/.claude/scripts/get-session-id.sh`.
+   - Run `${CLAUDE_PLUGIN_ROOT}/scripts/get-session-id.sh`.
    - If it cannot be detected, do not create a state file. Report that preparation is incomplete because the session id is unavailable.
 2. Set the destination to `${TMPDIR:-/tmp}/claude-compact-state/${SESSION_ID}.md`.
 3. Check TaskList, active plan file, tmux-bridge state, and files currently being edited.

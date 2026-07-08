@@ -132,7 +132,9 @@ When you pass natural-language instructions, such as `/compact keep the importan
    - `userpromptsubmit-compaction-recovery.sh` consumes the recovery marker and injects state file and plan file references, plus a factual note that memory, rule, and skill mentions in the compact summary are summaries and that the original files remain authoritative
    - If the state file has `## Skills Invoked`, the hook also injects guidance for rereading the relevant skills
    - `userpromptsubmit-compact-plus-reminder.sh` consumes warn markers and injects a lightweight notification plus a three-line state recitation when available
-4. **Manual fallback (`/compact-plus` skill)**
+4. **SessionStart hook**
+   - `sessionstart-export-session-id.sh` writes `export CLAUDE_CODE_SESSION_ID=<id>` to `$CLAUDE_ENV_FILE` so the `/compact-plus` skill can obtain the session id through the bundled `scripts/get-session-id.sh` wrapper without depending on any file outside the plugin
+5. **Manual fallback (`/compact-plus` skill)**
    - The agent follows the `SKILL.md` 10-section procedure and writes the state file manually
 
 ## State File Sections
