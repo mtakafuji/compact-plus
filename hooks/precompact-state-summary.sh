@@ -6,12 +6,14 @@ set -euo pipefail
 trap 'exit 0' ERR
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PLUGIN_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-PROMPT_FILE="$PLUGIN_ROOT/prompts/state-summary.md"
+# shellcheck source=../scripts/runtime-paths.sh
+source "$SCRIPT_DIR/../scripts/runtime-paths.sh"
+COMPACT_PLUS_PLUGIN_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+PROMPT_FILE="$COMPACT_PLUS_PLUGIN_ROOT/prompts/state-summary.md"
 
-STATE_DIR="${TMPDIR:-/tmp}/claude-compact-state" # lint:allow-os-tmp
-OFFSET_DIR="${TMPDIR:-/tmp}/claude-compact-state-offset" # lint:allow-os-tmp
-COUNTER_DIR="${TMPDIR:-/tmp}/claude-compact-state-counter" # lint:allow-os-tmp
+STATE_DIR="$COMPACT_PLUS_STATE_DIR"
+OFFSET_DIR="$COMPACT_PLUS_OFFSET_DIR"
+COUNTER_DIR="$COMPACT_PLUS_COUNTER_DIR"
 
 COMPACT_PLUS_TRANSCRIPT_MODE="${COMPACT_PLUS_TRANSCRIPT_MODE:-incremental}"
 COMPACT_PLUS_TRANSCRIPT_HEAD_TURNS="${COMPACT_PLUS_TRANSCRIPT_HEAD_TURNS:-5}"
@@ -80,7 +82,11 @@ extract_text() {
       (.message.content? | text_value),
       (.result? | text_value),
       (.output? | text_value),
-      (.tool_result? | text_value)
+      (.tool_result? | text_value),
+      (.payload.content? | text_value),
+      (.payload.message.content? | text_value),
+      (.payload.output? | text_value),
+      (.payload.text? | text_value)
     ] | map(select(. != null and . != "")) | first // ""
   ' "$json"
 }
@@ -89,7 +95,7 @@ extract_tool_name() {
   local json="$1"
   jq_string '
     [
-      .tool_name?, .name?,
+      .tool_name?, .name?, .payload.name?,
       (.message.content[]? | objects | select(.type? == "tool_use") | .name?),
       (.message.content[]? | objects | select(.type? == "tool_result") | .name?)
     ] | map(select(. != null and . != "")) | first // ""
@@ -106,7 +112,7 @@ extract_refs() {
 
 process_json_line() {
   local line="$1"
-  local json tool text refs line_count char_count exit_code match_count
+  local json tool text refs line_count char_count exit_code match_count payload_type
 
   json=$(printf '%s' "$line" | jq -c '.' 2>/dev/null) || {
     printf '%s\n' "$line"
@@ -123,6 +129,12 @@ process_json_line() {
   refs=$(extract_refs "$json")
   line_count=$(printf '%s' "$text" | awk 'END { print NR }')
   char_count=${#text}
+  payload_type=$(jq_string '.payload.type // .type // ""' "$json")
+
+  if [[ "$payload_type" == "function_call_output" && "$char_count" -gt "$COMPACT_PLUS_SQUASH_BASH_CHARS" ]]; then
+    printf '[ToolResult: %s chars output; refs: %s]\n' "$char_count" "$refs"
+    return
+  fi
 
   case "$tool" in
     Read)
@@ -216,6 +228,29 @@ next_counter() {
 collect_skills_invoked() {
   local skills commands combined
 
+  if [[ "$COMPACT_PLUS_RUNTIME_NAME" == "codex" ]]; then
+    commands=$(
+      jq -r '
+        select(
+          .type == "response_item"
+          and .payload.type == "message"
+          and .payload.role == "user"
+        )
+        | .payload.content[]?
+        | .text? // empty
+      ' "$TRANSCRIPT_PATH" 2>/dev/null \
+        | grep -oE '(^|[[:space:]])[$/][A-Za-z0-9_-]+' \
+        | sed -E 's/^[[:space:]]+//' \
+        | sort -u || true
+    )
+    if [[ -n "$commands" ]]; then
+      printf '%s\n' "$commands"
+    else
+      printf 'Not verified\n'
+    fi
+    return
+  fi
+
   skills=$(
     jq -r '
       .message.content[]?
@@ -249,7 +284,7 @@ build_user_prompt() {
   local mode="$1"
   local events="$2"
   local active_plan_path=""
-  local active_plan_pointer="${TMPDIR:-/tmp}/claude-active-plan/$SESSION_ID" # lint:allow-os-tmp
+  local active_plan_pointer="$COMPACT_PLUS_PLAN_POINTER_DIR/$SESSION_ID"
 
   if [[ -f "$active_plan_pointer" ]]; then
     active_plan_path=$(head -n 1 "$active_plan_pointer" 2>/dev/null || true)

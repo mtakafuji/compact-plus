@@ -1,11 +1,11 @@
 ---
 name: compact-plus
 description: |
-  Save the current Claude Code session state to a temporary state file before running /compact.
+  Save the current Claude Code or Codex session state to a temporary state file before running /compact.
   MANDATORY TRIGGERS: /compact-plus, compact-plus, compact plus, compaction plus handoff, pre-compact state save.
   DO NOT TRIGGER: post-compact recovery, ordinary progress updates, plan creation, or casual context-usage discussion.
 codex_description: |
-  Save compact-plus working state for Claude Code. Use before /compact only; do not use for normal progress updates or post-compact recovery.
+  Save compact-plus working state for the current Codex thread. Use before /compact only; do not use for normal progress updates or post-compact recovery.
 strict_procedure: true
 argument-hint: "[recovery notes]"
 allowed-tools: Bash, Read, Write, Edit, Grep
@@ -13,11 +13,11 @@ allowed-tools: Bash, Read, Write, Edit, Grep
 
 # compact-plus
 
-In Claude Code, the PreCompact hook automatically saves a pre-compaction state file when `/compact` runs.
-Codex does not run that hook, so this skill can be used as a manual fallback when needed.
+In Claude Code and Codex, the PreCompact hook automatically saves a pre-compaction state file when `/compact` runs.
+This skill is a manual fallback for richer recovery notes.
 
-Before Claude Code `/compact`, save working state that is not reliably preserved by the compaction summary to
-`${TMPDIR}/claude-compact-state/${SESSION_ID}.md`.
+Before `/compact`, save working state that is not reliably preserved by the compaction summary to the
+runtime-specific state directory.
 
 ## Strict procedure profile
 
@@ -29,9 +29,13 @@ Before Claude Code `/compact`, save working state that is not reliably preserved
 ## Procedure
 
 1. Get the session id.
-   - Run `${CLAUDE_PLUGIN_ROOT}/scripts/get-session-id.sh`.
+   - Use `$CLAUDE_CODE_SESSION_ID` in Claude Code.
+   - Otherwise use `$CODEX_THREAD_ID` in Codex.
+   - `$CODEX_COMPANION_SESSION_ID` is the final compatibility fallback.
    - If it cannot be detected, do not create a state file. Report that preparation is incomplete because the session id is unavailable.
-2. Set the destination to `${TMPDIR:-/tmp}/claude-compact-state/${SESSION_ID}.md`.
+2. Set the destination.
+   - Claude Code: `${TMPDIR:-/tmp}/claude-compact-state/${SESSION_ID}.md`.
+   - Codex: `${TMPDIR:-/tmp}/codex-compact-state/${SESSION_ID}.md`.
 3. Check TaskList, active plan file, tmux-bridge state, and files currently being edited.
    - Read the relevant active plan file under `~/.claude/plans/` when one is present.
    - If tmux-bridge is not used, record `Not used`.

@@ -8,6 +8,9 @@
 
 set -uo pipefail
 
+# Codex exports CODEX_THREAD_ID directly and does not use CLAUDE_ENV_FILE.
+[[ -n "${PLUGIN_ROOT:-}" || "${COMPACT_PLUS_RUNTIME:-}" == "codex" ]] && exit 0
+
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
 

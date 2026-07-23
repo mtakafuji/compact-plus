@@ -1,7 +1,7 @@
 # compact-plus Project Instructions
 
-This repository manages the Claude Code plugin that preserves and restores working state around
-Claude Code context compaction.
+This repository manages the Claude Code and Codex plugin that preserves and restores working state
+around context compaction.
 
 ## Scope
 
@@ -19,22 +19,28 @@ Claude Code context compaction.
 | `${TMPDIR:-/tmp}/claude-compact-warn/<session_id>` | statusline side | `userpromptsubmit-compact-plus-reminder.sh` | compact-plus suggestion marker |
 | `${TMPDIR:-/tmp}/claude-compact-warned/<session_id>` | `userpromptsubmit-compact-plus-reminder.sh` | statusline side / `compaction-recovery.sh` | suggestion cooldown marker |
 | `${TMPDIR:-/tmp}/claude-active-plan/<session_id>` | plan-management hook | `userpromptsubmit-compaction-recovery.sh` | active plan file pointer |
+| `${TMPDIR:-/tmp}/codex-compact-state/<thread_id>.md` | `precompact-state-summary.sh` / `/compact-plus` skill | `sessionstart-compaction-recovery.sh` / agent | Codex pre-compaction recovery state |
+| `${TMPDIR:-/tmp}/codex-compact-state-offset/<thread_id>` | `precompact-state-summary.sh` | `precompact-state-summary.sh` | Codex incremental byte offset |
+| `${TMPDIR:-/tmp}/codex-compact-state-counter/<thread_id>` | `precompact-state-summary.sh` | `precompact-state-summary.sh` | Codex refresh cycle counter |
+| `${TMPDIR:-/tmp}/codex-compacted/<thread_id>` | `compaction-recovery.sh` | `sessionstart-compaction-recovery.sh` | Codex PostCompact marker |
+| `${TMPDIR:-/tmp}/codex-compact-warned/<thread_id>` | `userpromptsubmit-compact-plus-reminder.sh` | reminder / recovery hook | Codex notification cooldown |
 
 ## External Dependencies
 
-- Session id detection uses the bundled `scripts/get-session-id.sh` (invoked from the skill as `${CLAUDE_PLUGIN_ROOT}/scripts/get-session-id.sh`). It reads `$CLAUDE_CODE_SESSION_ID` (populated by the SessionStart hook `sessionstart-export-session-id.sh` via `$CLAUDE_ENV_FILE`) or `$CODEX_COMPANION_SESSION_ID` as a fallback. No external asset outside the plugin is required.
-- `skills/compact-plus/SKILL.md` is the Claude plugin skill entrypoint.
-- Hook scripts run through `hooks/hooks.json` as a Claude Code plugin.
+- Session id detection uses `$CLAUDE_CODE_SESSION_ID`, `$CODEX_THREAD_ID`, then `$CODEX_COMPANION_SESSION_ID`.
+- `skills/compact-plus/SKILL.md` is the Claude Code and Codex plugin skill entrypoint.
+- Hook scripts run through shared `hooks/hooks.json`; scripts select runtime-specific storage.
 - Runtime tuning uses Claude Code `settings.json` `env` values. See `README.md` for the env var list and default behavior.
 
 ## Hook Scripts
 
 - `sessionstart-export-session-id.sh`: SessionStart hook that appends `export CLAUDE_CODE_SESSION_ID=<id>` to `$CLAUDE_ENV_FILE`, making the session id available to subsequent Bash tool calls and skill scripts inside the same session. Runs on every SessionStart matcher.
-- `precompact-transcript-backup.sh`: backs up the transcript to `~/.claude/backups/transcripts/` during PreCompact.
+- `precompact-transcript-backup.sh`: backs up the transcript to the Claude Code or Codex backup directory during PreCompact.
 - `precompact-state-summary.sh`: generates a state file during PreCompact using incremental transcript reads, semantic head/tail fallback, tool output squash, two-pass prompt metadata, custom `/compact` instructions, and Skills Invoked extraction.
 - `compaction-recovery.sh`: writes a recovery marker during PostCompact and clears the compact warning cooldown.
 - `userpromptsubmit-compaction-recovery.sh`: consumes the recovery marker once and injects a state file or transcript backup reference through additionalContext, including the original-source factual note and Skills Invoked guidance when present.
 - `userpromptsubmit-compact-plus-reminder.sh`: consumes the compact warning marker once, suggests `/compact` or `/compact-plus`, and includes a three-line state recitation when available.
+- `sessionstart-compaction-recovery.sh`: on Codex `SessionStart(source=compact)`, consumes the Codex marker and injects recovery guidance once.
 
 ## Implementation Discipline
 

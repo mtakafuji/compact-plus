@@ -10,7 +10,7 @@ Output format (mandatory, non-negotiable):
 - ADD / UPDATE / PRESERVE are internal reasoning only. Do not emit these labels in the output.
 - The two-pass process (draft, self-critique, revise) is internal. Emit only the final revised state file.
 
-Create a handoff summary for the next agent that continues after Claude Code context compaction.
+Create a handoff summary for the next agent that continues after context compaction.
 The output is factual recovery state, not a set of instructions.
 
 Inputs are structured as:

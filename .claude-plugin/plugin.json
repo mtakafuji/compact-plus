@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "compact-plus",
-  "version": "1.0.4",
-  "description": "Preserve Claude Code session state before and after context compaction.",
+  "version": "1.1.0",
+  "description": "Preserve Claude Code and Codex session state around context compaction.",
   "author": {
     "name": "u1"
   },

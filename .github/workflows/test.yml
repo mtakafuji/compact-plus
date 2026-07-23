@@ -17,10 +17,15 @@ jobs:
         run: |
           python3 -m json.tool .claude-plugin/plugin.json >/dev/null
           python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+          python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+          python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
           python3 -m json.tool hooks/hooks.json >/dev/null
 
       - name: Check bash syntax
-        run: bash -n hooks/*.sh
+        run: bash -n hooks/*.sh scripts/*.sh tests/*.sh
+
+      - name: Run runtime tests
+        run: bash tests/test-runtime.sh
 
       - name: Check no tracked symlinks
         run: |
@@ -36,11 +41,17 @@ jobs:
           plugin_version="$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json", encoding="utf-8"))["version"])')"
           marketplace_meta_version="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json", encoding="utf-8"))["metadata"]["version"])')"
           marketplace_plugin_version="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json", encoding="utf-8"))["plugins"][0]["version"])')"
+          codex_plugin_version="$(python3 -c 'import json; print(json.load(open(".codex-plugin/plugin.json", encoding="utf-8"))["version"])')"
+          codex_marketplace_meta_version="$(python3 -c 'import json; print(json.load(open(".agents/plugins/marketplace.json", encoding="utf-8"))["metadata"]["version"])')"
+          codex_marketplace_plugin_version="$(python3 -c 'import json; print(json.load(open(".agents/plugins/marketplace.json", encoding="utf-8"))["plugins"][0]["version"])')"
           mismatch=0
           for name_ver in \
             ".claude-plugin/plugin.json:$plugin_version" \
             "marketplace.json metadata.version:$marketplace_meta_version" \
-            "marketplace.json plugins[0].version:$marketplace_plugin_version"; do
+            "marketplace.json plugins[0].version:$marketplace_plugin_version" \
+            ".codex-plugin/plugin.json:$codex_plugin_version" \
+            ".agents marketplace metadata.version:$codex_marketplace_meta_version" \
+            ".agents marketplace plugins[0].version:$codex_marketplace_plugin_version"; do
             ver="${name_ver#*:}"
             if [ "$ver" != "$plugin_version" ]; then
               echo "Version mismatch: ${name_ver%%:*} = $ver (expected $plugin_version)"

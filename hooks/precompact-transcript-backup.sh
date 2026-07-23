@@ -5,6 +5,10 @@
 set -euo pipefail
 trap 'exit 0' ERR
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=../scripts/runtime-paths.sh
+source "$SCRIPT_DIR/../scripts/runtime-paths.sh"
+
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
 TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
@@ -13,7 +17,7 @@ TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/de
 [[ -n "$TRANSCRIPT_PATH" ]] || exit 0
 [[ -f "$TRANSCRIPT_PATH" ]] || exit 0
 
-BACKUP_DIR="${HOME}/.claude/backups/transcripts"
+BACKUP_DIR="$COMPACT_PLUS_BACKUP_DIR"
 mkdir -p "$BACKUP_DIR" 2>/dev/null || true
 
 EPOCH=$(date +%s)
