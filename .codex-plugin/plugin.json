@@ -1,0 +1,35 @@
+{
+  "name": "compact-plus",
+  "version": "1.1.0",
+  "description": "Preserve Claude Code and Codex session state around context compaction.",
+  "author": {
+    "name": "u1"
+  },
+  "homepage": "https://github.com/u-ichi/compact-plus",
+  "repository": "https://github.com/u-ichi/compact-plus",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "claude-code",
+    "compact",
+    "hooks",
+    "session-recovery"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "compact-plus",
+    "shortDescription": "Compact前後の作業状態を保存・復元する",
+    "longDescription": "Claude CodeとCodexのcontext compaction前にtranscriptと作業状態を保存し、compaction後に同じsessionへ復元情報を追加する。",
+    "developerName": "u1",
+    "category": "Productivity",
+    "capabilities": [
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Save compact-plus state before compaction",
+      "compact前の作業状態を保存して",
+      "Recover state after compaction"
+    ],
+    "brandColor": "#5B5BD6"
+  }
+}

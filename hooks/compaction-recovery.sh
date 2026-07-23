@@ -1,23 +1,27 @@
 #!/bin/bash
 # PostCompact hook (matcher: ""): record compaction with a marker file.
 # PostCompact does not support additionalContext output, so context injection
-# is handled by the UserPromptSubmit hook (userpromptsubmit-compaction-recovery.sh).
+# is handled by UserPromptSubmit on Claude Code and SessionStart on Codex.
 #
 # fail-open (always exit 0)
 
 set -uo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=../scripts/runtime-paths.sh
+source "$SCRIPT_DIR/../scripts/runtime-paths.sh"
+
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [[ -z "$SESSION_ID" ]] && exit 0
 
-# Write the marker file. UserPromptSubmit detects it, injects context, then removes it.
-MARKER_DIR="${TMPDIR:-/tmp}/claude-compacted" # lint:allow-os-tmp
+# Write the marker file. The runtime-specific recovery hook consumes it once.
+MARKER_DIR="$COMPACT_PLUS_MARKER_DIR"
 mkdir -p "$MARKER_DIR" 2>/dev/null || true
 printf '%s\n' "$(date +%s)" > "$MARKER_DIR/$SESSION_ID" 2>/dev/null || true
 
 # Reset the compact reminder cooldown after compact runs.
-WARN_DIR="${TMPDIR:-/tmp}/claude-compact-warned" # lint:allow-os-tmp
+WARN_DIR="$COMPACT_PLUS_WARNED_DIR"
 rm -f "$WARN_DIR/$SESSION_ID" 2>/dev/null || true
 
 exit 0

@@ -2,14 +2,14 @@
 
 [Japanese README](./README.ja.md) | [Architecture](./docs/architecture.md)
 
-A transparent Claude Code plugin that raises `/compact` session continuity (state capture, recovery guidance, and skill recall) above Codex CLI parity. It does not replace Claude Code's compaction algorithm — it augments compaction through the documented hook surface.
+A transparent Claude Code and Codex plugin that preserves working state around `/compact`. It does not replace either runtime's compaction algorithm; it augments compaction through documented hooks.
 
 ## What It Does
 
 - Backs up the transcript before compaction and writes a 10-section state file with an LLM
 - Injects the state file, plan file, and original-source reminder after compaction through `additionalContext`
-- Recovers the list of skills invoked earlier in the session — a mechanism not present in the Codex CLI baseline
-- When context usage crosses a configured threshold (default 60%), the next user prompt receives a suggestion to run `/compact`
+- Recovers mechanically observable skills and commands; unobservable Codex skill use is recorded as `Not verified`
+- When context usage crosses a configured threshold, the next user prompt receives a suggestion to run `/compact`
 - Alongside that reminder, the plugin injects a three-line recitation (Active Plan, Current Phase, and the most recent Session Decision from the state file) into `additionalContext`, so the agent keeps its bearings during the last few turns before compaction actually runs. This does not change the compaction algorithm itself; it is a focus aid that reduces late-session drift between warn and the real `/compact`
 - Provides the `/compact-plus` skill for manual state capture
 
@@ -19,7 +19,7 @@ After installation, just run `/compact` as usual. **No additional action is requ
 
 - Both manual `/compact` and auto-compaction trigger the same hook path
 - Before compaction: the PreCompact hook automatically backs up the transcript and generates the 10-section state file
-- After compaction: recovery guidance is automatically injected into `additionalContext` through the UserPromptSubmit hook on the next user prompt
+- After compaction: Claude Code recovers through the next `UserPromptSubmit`; Codex recovers through `SessionStart(source=compact)` on the next turn
 - The agent does not need to call any specific skill or perform any preparation
 
 Optional enhancements:
@@ -29,19 +29,49 @@ Optional enhancements:
 
 ## Requirements
 
-- Claude Code v2.x or later
+- Claude Code v2.x or later, or a Codex version with plugin compaction hooks
 - An LLM backend through `claude -p` or `codex exec`
 - The default configuration uses `claude -p --model claude-sonnet-5 --effort medium` as the primary backend and `codex exec --model gpt-5.3-codex-spark` as the fallback backend
 - The Codex Spark fallback assumes ChatGPT Pro access. You can switch the fallback to models such as `gpt-5.4` or `gpt-5.5`
 
 ## Installation
 
-Add the local marketplace, then install the plugin.
+### Claude Code
+
+Add this GitHub repository as a marketplace, then install the plugin from it.
 
 ```bash
-claude plugin marketplace add /path/to/compact-plus --scope user
-claude plugin install compact-plus@compact-plus-local
+claude plugin marketplace add u-ichi/compact-plus --scope user
+claude plugin install compact-plus@compact-plus
 ```
+
+### Codex
+
+Add the same GitHub repository as a marketplace, then install the Codex plugin.
+
+```bash
+codex plugin marketplace add u-ichi/compact-plus
+codex plugin add compact-plus@compact-plus
+```
+
+Review and trust the hook definitions when Codex prompts.
+Start a new thread after installation so Codex loads the installed plugin and hooks.
+
+### Updating
+
+Refresh the GitHub marketplace snapshot, then update or reinstall the plugin.
+
+```bash
+# Claude Code
+claude plugin update compact-plus@compact-plus
+
+# Codex
+codex plugin marketplace upgrade compact-plus
+codex plugin add compact-plus@compact-plus
+```
+
+For local development, replace `u-ichi/compact-plus` in the marketplace-add command with the absolute path to this repository.
+The plugin reference remains `compact-plus@compact-plus`.
 
 ## Configuration
 
@@ -113,9 +143,16 @@ Example disabling the fallback:
 | `COMPACT_PLUS_SQUASH_BASH_CHARS` | `500` | Replaces Bash output above N characters with `[Bash: exit code, N chars output]` |
 | `COMPACT_PLUS_TWO_PASS` | `1` | Enables or disables two-pass self-critique |
 
-### Warn Threshold
+### Warn Thresholds
 
-Set `COMPACT_WARN_THRESHOLD` (default `60`) in the `settings.json` `env` block to change when the statusline emits a warn marker. This setting belongs to the base repository `home/hooks/claude/statusline.sh`, not to the compact-plus plugin itself.
+Claude Code and Codex use separate settings:
+
+| Runtime | env var | default | Source |
+|---|---|---:|---|
+| Claude Code | `COMPACT_WARN_THRESHOLD` | base repository setting | `home/hooks/claude/statusline.sh` writes the marker consumed by this plugin |
+| Codex | `COMPACT_PLUS_CODEX_WARN_THRESHOLD` | `75` | compact-plus reads the latest token-count event from the current thread rollout |
+
+Both values are context **usage** percentages. Changing one does not change the other. Codex uses the same effective-window basis as its context display by excluding the current 12,000-token fixed baseline. Codex also verifies that the rollout's `session_meta.id` matches the current `session_id`; missing, malformed, or mismatched rollout data produces no notification.
 
 ### `/compact` Arguments
 
@@ -124,12 +161,13 @@ When you pass natural-language instructions, such as `/compact keep the importan
 ## Runtime Flow
 
 1. **PreCompact hook**
-   - `precompact-transcript-backup.sh` copies the transcript JSONL to `~/.claude/backups/transcripts/`
+   - `precompact-transcript-backup.sh` copies the transcript JSONL to `~/.claude/backups/transcripts/` or `${CODEX_HOME:-$HOME/.codex}/backups/transcripts/`
    - `precompact-state-summary.sh` applies semantic chunking and tool output squash to the transcript, then calls the primary or fallback backend and writes the 10-section state file
 2. **PostCompact hook**
    - `compaction-recovery.sh` writes a recovery marker and resets the warning cooldown
-3. **UserPromptSubmit hook**
+3. **Recovery hook**
    - `userpromptsubmit-compaction-recovery.sh` consumes the recovery marker and injects state file and plan file references, plus a factual note that memory, rule, and skill mentions in the compact summary are summaries and that the original files remain authoritative
+   - Codex calls `sessionstart-compaction-recovery.sh` for `SessionStart(source=compact)`; built-in summary continuity remains responsible for the immediate compact continuation, and compact-plus external state is added on the next turn
    - If the state file has `## Skills Invoked`, the hook also injects guidance for rereading the relevant skills
    - `userpromptsubmit-compact-plus-reminder.sh` consumes warn markers and injects a lightweight notification plus a three-line state recitation when available
 4. **SessionStart hook**
@@ -163,6 +201,9 @@ State files start with `# Compact Prep State` and use the same 10-section order 
 | `${TMPDIR}/claude-compact-warn/<session_id>` | base repo `statusline.sh` | `userpromptsubmit-compact-plus-reminder.sh` | Threshold warning |
 | `${TMPDIR}/claude-compact-warned/<session_id>` | `userpromptsubmit-compact-plus-reminder.sh` | statusline / recovery hook | Notification cooldown |
 | `${TMPDIR}/claude-active-plan/<session_id>` | plan-management hook | recovery hook | Active plan path |
+| `${TMPDIR}/codex-compact-state/<thread_id>.md` | `precompact-state-summary.sh` / `/compact-plus` skill | Codex recovery hook / agent | Codex pre-compaction state |
+| `${TMPDIR}/codex-compacted/<thread_id>` | `compaction-recovery.sh` | `sessionstart-compaction-recovery.sh` | Codex one-shot recovery marker |
+| `${TMPDIR}/codex-compact-warned/<thread_id>` | reminder hook | reminder / recovery hook | Codex notification cooldown |
 
 ## Architecture
 
@@ -173,6 +214,9 @@ See [docs/architecture.md](./docs/architecture.md) for the design overview, Clau
 ```bash
 python3 -m json.tool .claude-plugin/plugin.json >/dev/null
 python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
 python3 -m json.tool hooks/hooks.json >/dev/null
-bash -n hooks/*.sh
+bash -n hooks/*.sh scripts/*.sh tests/*.sh
+bash tests/test-runtime.sh
 ```

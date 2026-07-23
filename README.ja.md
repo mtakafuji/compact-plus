@@ -2,14 +2,14 @@
 
 [English README](./README.md) | [アーキテクチャ](./docs/architecture.ja.md)
 
-Codex を超えるセッション継続 (state 保存 + 復旧誘導 + skill 復元) を Claude Code の `/compact` に上乗せする透過型プラグイン。Claude Code の圧縮アルゴリズム自体は置き換えず、公式 hook 経路で圧縮前後を強化する。
+Claude Code と Codex の `/compact` 前後で作業状態を保存・復旧する透過型プラグイン。どちらの圧縮アルゴリズムも置き換えず、公式 hook 経路で圧縮前後を強化する。
 
 ## 何ができるか
 
 - 圧縮前に transcript を backup し、LLM で 10 見出しの state file を書き出す
 - 圧縮後に state file、plan file、原文再読 note を additionalContext として注入する
-- state file から呼び出し済み skill 一覧を復元させる (Codex 標準にない機構)
-- コンテキスト使用率が指定閾値 (default 60%) を超えたら、次の user prompt で `/compact` を推奨する通知を出す
+- transcriptで機械的に観測できたskillとcommandを復元する。Codexで観測できないskillは`Not verified`と記録する
+- コンテキスト使用率がruntime別の指定閾値を超えたら、次のuser promptで`/compact`を推奨する通知を出す
 - 通知と同時に state file の Active Plan / Current Phase / 直近 Session Decision を 3 行 additionalContext に注入し、圧縮直前まで agent が作業の大局を見失わないようにする (compact 動作そのものは変わらないが、warn 発火から実 `/compact` までの数ターンで agent が脱線するのを防ぐ focus 補助)
 - `/compact-plus` skill で手動 state 保存もできる
 
@@ -19,7 +19,7 @@ Codex を超えるセッション継続 (state 保存 + 復旧誘導 + skill 復
 
 - 手動 `/compact` でも auto-compact でも同じ経路で hook が発火する
 - 圧縮前: transcript backup と 10 見出し state file 生成が PreCompact hook で自動実行される
-- 圧縮後: 次の user prompt で recovery guidance が UserPromptSubmit hook 経由で additionalContext に自動注入される
+- 圧縮後: Claude Codeは次のUserPromptSubmit、Codexは次turnの`SessionStart(source=compact)`でrecovery guidanceを自動注入する
 - agent が特定 skill を呼ぶ必要も、事前に何かを実行する必要もない
 
 任意で強化する場合:
@@ -29,19 +29,49 @@ Codex を超えるセッション継続 (state 保存 + 復旧誘導 + skill 復
 
 ## 前提
 
-- Claude Code v2.x 以降
+- Claude Code v2.x 以降、またはplugin compaction hook対応のCodex
 - LLM backend として `claude -p` または `codex exec`
 - default 構成では primary に `claude -p --model claude-sonnet-5 --effort medium`、fallback に `codex exec --model gpt-5.3-codex-spark` を使う
 - fallback の Codex Spark は ChatGPT Pro が前提。`gpt-5.4` / `gpt-5.5` などへ切り替え可能
 
-## Installation
+## インストール
 
-marketplace add と plugin install の順で実行する。
+### Claude Code
+
+このGitHub repositoryをmarketplaceとして追加し、そこからpluginをinstallする。
 
 ```bash
-claude plugin marketplace add /path/to/compact-plus --scope user
-claude plugin install compact-plus@compact-plus-local
+claude plugin marketplace add u-ichi/compact-plus --scope user
+claude plugin install compact-plus@compact-plus
 ```
+
+### Codex
+
+同じGitHub repositoryをmarketplaceとして追加し、Codex pluginをinstallする。
+
+```bash
+codex plugin marketplace add u-ichi/compact-plus
+codex plugin add compact-plus@compact-plus
+```
+
+Codexが確認を求めたらhook定義をreviewして信頼する。
+install済みのpluginとhookを読み込ませるため、install後は新しいthreadを開始する。
+
+### 更新
+
+GitHub marketplaceのsnapshotを更新してから、pluginを更新または再installする。
+
+```bash
+# Claude Code
+claude plugin update compact-plus@compact-plus
+
+# Codex
+codex plugin marketplace upgrade compact-plus
+codex plugin add compact-plus@compact-plus
+```
+
+ローカル開発では、marketplace追加commandの`u-ichi/compact-plus`をこのrepositoryの絶対pathへ置き換える。
+plugin参照は`compact-plus@compact-plus`のまま変えない。
 
 ## 設定
 
@@ -115,7 +145,14 @@ fallback を無効化する例:
 
 ### warn 閾値
 
-`COMPACT_WARN_THRESHOLD` (default `60`) を `settings.json` の `env` に書けば statusline の warn marker 発火閾値を変えられる。これは compact-plus plugin ではなく base repo `home/hooks/claude/statusline.sh` 側の env。
+Claude CodeとCodexは別設定を使う。
+
+| runtime | env var | default | 取得元 |
+|---|---|---:|---|
+| Claude Code | `COMPACT_WARN_THRESHOLD` | base repository設定 | `home/hooks/claude/statusline.sh`がmarkerを生成 |
+| Codex | `COMPACT_PLUS_CODEX_WARN_THRESHOLD` | `75` | 現在threadのrolloutにある最新token-count event |
+
+どちらもコンテキスト**使用率**。片方の変更はもう片方へ影響しない。Codexは表示と同じ実効window基準を使い、現在の固定baseline 12,000 tokenを分子・分母から除外する。rolloutの`session_meta.id`と現在の`session_id`の一致も確認し、欠損・不正・不一致なら通知しない。
 
 ### `/compact` 引数
 
@@ -124,14 +161,15 @@ fallback を無効化する例:
 ## 動作フロー
 
 1. **PreCompact hook**
-   - `precompact-transcript-backup.sh` が transcript JSONL を `~/.claude/backups/transcripts/` にコピーする
+   - `precompact-transcript-backup.sh` が transcript JSONL を `~/.claude/backups/transcripts/` または `${CODEX_HOME:-$HOME/.codex}/backups/transcripts/` にコピーする
    - `precompact-state-summary.sh` が transcript を semantic chunking + tool output squash 後、primary / fallback backend で LLM を呼び、10 見出しの state file を書く
 2. **PostCompact hook**
    - `compaction-recovery.sh` が recovery marker を書き、warn cooldown をリセットする
-3. **UserPromptSubmit hook**
+3. **復旧hook**
    - `userpromptsubmit-compaction-recovery.sh` が marker を検知して state file と plan file への参照、および「memory / rule / skill 言及は圧縮 summary の要約であり原文が authoritative」という factual note を additionalContext に注入する
    - state file に `## Skills Invoked` があれば、skill 一覧の参照案内も追加する
    - `userpromptsubmit-compact-plus-reminder.sh` が warn marker 検知時に軽い notification と state 3 行 recitation を additionalContext に注入する
+   - Codexは`SessionStart(source=compact)`で`sessionstart-compaction-recovery.sh`を呼ぶ。compact直後の継続はbuilt-in summaryが担い、compact-plusの外部stateは次turnで追加される
 4. **手動 fallback (`/compact-plus` skill)**
    - agent 自身が SKILL.md の 10 見出し手順に従って state file を書く
 
@@ -161,6 +199,9 @@ fallback を無効化する例:
 | `${TMPDIR}/claude-compact-warn/<session_id>` | base repo `statusline.sh` | `userpromptsubmit-compact-plus-reminder.sh` | 閾値超過通知 |
 | `${TMPDIR}/claude-compact-warned/<session_id>` | `userpromptsubmit-compact-plus-reminder.sh` | statusline / recovery hook | 通知 cooldown |
 | `${TMPDIR}/claude-active-plan/<session_id>` | plan-management hook | recovery hook | active plan path |
+| `${TMPDIR}/codex-compact-state/<thread_id>.md` | `precompact-state-summary.sh` / `/compact-plus` skill | Codex recovery hook / agent | Codex圧縮前state |
+| `${TMPDIR}/codex-compacted/<thread_id>` | `compaction-recovery.sh` | `sessionstart-compaction-recovery.sh` | Codex one-shot recovery marker |
+| `${TMPDIR}/codex-compact-warned/<thread_id>` | reminder hook | reminder / recovery hook | Codex通知cooldown |
 
 ## Architecture
 
@@ -171,6 +212,9 @@ fallback を無効化する例:
 ```bash
 python3 -m json.tool .claude-plugin/plugin.json >/dev/null
 python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
 python3 -m json.tool hooks/hooks.json >/dev/null
-bash -n hooks/*.sh
+bash -n hooks/*.sh scripts/*.sh tests/*.sh
+bash tests/test-runtime.sh
 ```
